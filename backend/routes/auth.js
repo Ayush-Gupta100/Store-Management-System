@@ -1,6 +1,7 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -9,7 +10,7 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "7d" });
 };
 
-// @route   POST /register
+// @route   POST /api/register
 // @desc    Register a new user
 // @access  Public
 router.post("/register", async (req, res) => {
@@ -45,7 +46,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// @route   POST /login
+// @route   POST /api/login
 // @desc    Authenticate user and return JWT
 // @access  Public
 router.post("/login", async (req, res) => {
@@ -82,6 +83,20 @@ router.post("/login", async (req, res) => {
     console.error("Login error:", error);
     res.status(500).json({ message: "Server error during login", error: error.message });
   }
+});
+
+// @route   GET /api/dashboard
+// @desc    Protected dashboard route
+// @access  Protected
+router.get("/dashboard", protect, async (req, res) => {
+  res.json({
+    message: "Dashboard access granted",
+    user: {
+      id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+    },
+  });
 });
 
 module.exports = router;

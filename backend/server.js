@@ -4,7 +4,7 @@ const cors = require("cors");
 require("dotenv").config();
 
 const authRoutes = require("./routes/auth");
-const expenseRoutes = require("./routes/expenses");
+const itemRoutes = require("./routes/expenses");
 
 const app = express();
 
@@ -14,13 +14,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.use("/", authRoutes);
-app.use("/", expenseRoutes);
+app.use("/api", authRoutes);
+app.use("/api", itemRoutes);
 
 
 // Connect to MongoDB and start server
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/expense-manager";
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/lost-found-manager";
 console.log(process.env.MONGO_URI)
 mongoose
   .connect(MONGO_URI)

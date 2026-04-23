@@ -1,470 +1,476 @@
-import { useState, useEffect, createContext, useContext } from "react";
-const API = "https://expense-app-backend-5fh9.onrender.com";
-console.log(API);
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import "./App.css";
 
-// ─── Auth Context ────────────────────────────────────────────────────────────
+const RAW_API = import.meta.env.VITE_API || "http://localhost:5000";
+const API = RAW_API.endsWith("/api") ? RAW_API : `${RAW_API}/api`;
+
 const AuthContext = createContext(null);
 
 function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
-    const u = localStorage.getItem("user");
-    return u ? JSON.parse(u) : null;
+    const stored = localStorage.getItem("user");
+    return stored ? JSON.parse(stored) : null;
   });
-  const [token, setToken] = useState(() => localStorage.getItem("token") || null);
+  const [token, setToken] = useState(() => localStorage.getItem("token") || "");
 
-  const login = (userData, tok) => {
+  const login = (userData, authToken) => {
     setUser(userData);
-    setToken(tok);
+    setToken(authToken);
     localStorage.setItem("user", JSON.stringify(userData));
-    localStorage.setItem("token", tok);
+    localStorage.setItem("token", authToken);
   };
 
   const logout = () => {
     setUser(null);
-    setToken(null);
+    setToken("");
     localStorage.removeItem("user");
     localStorage.removeItem("token");
   };
 
-  return (
-    <AuthContext.Provider value={{ user, token, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ user, token, login, logout }}>{children}</AuthContext.Provider>;
 }
 
-const useAuth = () => useContext(AuthContext);
-
-// ─── API Helper ──────────────────────────────────────────────────────────────
-async function apiFetch(path, options = {}, token = null) {
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(`${API}${path}`, { ...options, headers });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Request failed");
-  return data;
+function useAuth() {
+  return useContext(AuthContext);
 }
 
-// ─── Category Config ─────────────────────────────────────────────────────────
-const CATEGORIES = ["Food", "Travel", "Bills", "Shopping", "Health", "Entertainment", "Education", "Other"];
-const CAT_COLORS = {
-  Food: "#f97316", Travel: "#8b5cf6", Bills: "#ef4444",
-  Shopping: "#ec4899", Health: "#10b981", Entertainment: "#3b82f6",
-  Education: "#f59e0b", Other: "#6b7280",
-};
-const CAT_ICONS = {
-  Food: "🍔", Travel: "✈️", Bills: "📄", Shopping: "🛍️",
-  Health: "❤️", Entertainment: "🎬", Education: "📚", Other: "📦",
-};
+function useApi(token) {
+  return useMemo(() => {
+    const client = axios.create({
+      baseURL: API,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
 
-// ─── Components ──────────────────────────────────────────────────────────────
+    client.interceptors.request.use((config) => {
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
 
-function Input({ label, error, ...props }) {
+    return client;
+  }, [token]);
+}
+
+function AuthInput({ label, ...props }) {
   return (
-    <div style={{ marginBottom: "16px" }}>
-      {label && <label style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "#94a3b8", letterSpacing: "0.05em", textTransform: "uppercase" }}>{label}</label>}
-      <input
-        {...props}
-        style={{
-          width: "100%", padding: "12px 16px", background: "rgba(255,255,255,0.05)",
-          border: `1px solid ${error ? "#ef4444" : "rgba(255,255,255,0.1)"}`,
-          borderRadius: "10px", color: "#f1f5f9", fontSize: "15px",
-          outline: "none", transition: "border-color 0.2s", boxSizing: "border-box",
-          fontFamily: "inherit",
-        }}
-        onFocus={e => e.target.style.borderColor = "#6366f1"}
-        onBlur={e => e.target.style.borderColor = error ? "#ef4444" : "rgba(255,255,255,0.1)"}
-      />
-      {error && <p style={{ color: "#ef4444", fontSize: "12px", marginTop: "4px" }}>{error}</p>}
+    <div className="field">
+      <label>{label}</label>
+      <input {...props} />
     </div>
   );
 }
 
-function Select({ label, options, value, onChange }) {
-  return (
-    <div style={{ marginBottom: "16px" }}>
-      {label && <label style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "#94a3b8", letterSpacing: "0.05em", textTransform: "uppercase" }}>{label}</label>}
-      <select
-        value={value}
-        onChange={onChange}
-        style={{
-          width: "100%", padding: "12px 16px", background: "#1e293b",
-          border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px",
-          color: "#f1f5f9", fontSize: "15px", outline: "none", boxSizing: "border-box",
-          fontFamily: "inherit", cursor: "pointer",
-        }}
-      >
-        {options.map(o => (
-          <option key={o} value={o} style={{ background: "#1e293b" }}>{o}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function Button({ children, loading, variant = "primary", ...props }) {
-  const styles = {
-    primary: { background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff" },
-    secondary: { background: "rgba(255,255,255,0.05)", color: "#94a3b8", border: "1px solid rgba(255,255,255,0.1)" },
-    danger: { background: "rgba(239,68,68,0.15)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" },
-  };
-  return (
-    <button
-      {...props}
-      disabled={loading || props.disabled}
-      style={{
-        padding: "12px 24px", borderRadius: "10px", fontWeight: 600,
-        fontSize: "15px", cursor: loading ? "wait" : "pointer", border: "none",
-        transition: "all 0.2s", fontFamily: "inherit", width: "100%",
-        ...styles[variant],
-        opacity: loading ? 0.7 : 1,
-        ...props.style,
-      }}
-    >
-      {loading ? "Loading..." : children}
-    </button>
-  );
-}
-
-// ─── Register Page ────────────────────────────────────────────────────────────
-function RegisterPage({ onSwitch }) {
+function RegisterForm({ onSwitch }) {
   const { login } = useAuth();
+  const api = useApi("");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
-  const [errors, setErrors] = useState({});
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
 
-  const validate = () => {
-    const e = {};
-    if (!form.name.trim()) e.name = "Name is required";
-    if (!form.email.trim()) e.email = "Email is required";
-    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = "Invalid email";
-    if (!form.password) e.password = "Password is required";
-    else if (form.password.length < 6) e.password = "Min 6 characters";
-    return e;
-  };
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
 
-  const handleSubmit = async () => {
-    const e = validate();
-    if (Object.keys(e).length) return setErrors(e);
-    setLoading(true); setMsg("");
+    if (!form.name || !form.email || !form.password) {
+      setError("All fields are required.");
+      return;
+    }
+
     try {
-      const data = await apiFetch("/register", { method: "POST", body: JSON.stringify(form) });
-      login(data.user, data.token);
+      setLoading(true);
+      const response = await api.post("/register", form);
+      login(response.data.user, response.data.token);
     } catch (err) {
-      setMsg(err.message);
+      setError(err.response?.data?.message || "Registration failed.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={authContainerStyle}>
-      <div style={authCardStyle}>
-        <div style={{ textAlign: "center", marginBottom: "32px" }}>
-          <div style={{ fontSize: "40px", marginBottom: "8px" }}>💸</div>
-          <h1 style={{ color: "#f1f5f9", fontSize: "26px", fontWeight: 700, margin: 0 }}>Create Account</h1>
-          <p style={{ color: "#64748b", marginTop: "8px", fontSize: "14px" }}>Start tracking your expenses today</p>
-        </div>
-        {msg && <div style={errorBannerStyle}>{msg}</div>}
-        <Input label="Full Name" type="text" placeholder="John Doe" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} error={errors.name} />
-        <Input label="Email" type="email" placeholder="you@example.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} error={errors.email} />
-        <Input label="Password" type="password" placeholder="Min 6 characters" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} error={errors.password} />
-        <Button loading={loading} onClick={handleSubmit}>Create Account</Button>
-        <p style={{ textAlign: "center", color: "#64748b", marginTop: "20px", fontSize: "14px" }}>
-          Already have an account?{" "}
-          <span onClick={onSwitch} style={{ color: "#6366f1", cursor: "pointer", fontWeight: 600 }}>Sign In</span>
+    <div className="auth-wrap">
+      <form className="card" onSubmit={submit}>
+        <h1>Lost and Found</h1>
+        <p className="subtitle">Create your student account</p>
+
+        {error && <div className="alert error">{error}</div>}
+
+        <AuthInput
+          label="Name"
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="Enter full name"
+        />
+        <AuthInput
+          label="Email"
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          placeholder="you@college.edu"
+        />
+        <AuthInput
+          label="Password"
+          type="password"
+          value={form.password}
+          onChange={(e) => setForm({ ...form, password: e.target.value })}
+          placeholder="Minimum 6 characters"
+        />
+
+        <button disabled={loading} type="submit" className="btn primary">
+          {loading ? "Creating..." : "Register"}
+        </button>
+
+        <p className="footnote">
+          Already registered? <button type="button" className="text-btn" onClick={onSwitch}>Log in</button>
         </p>
-      </div>
+      </form>
     </div>
   );
 }
 
-// ─── Login Page ────────────────────────────────────────────────────────────
-function LoginPage({ onSwitch }) {
+function LoginForm({ onSwitch }) {
   const { login } = useAuth();
+  const api = useApi("");
   const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
 
-  const handleSubmit = async () => {
-    if (!form.email || !form.password) return setMsg("Please fill all fields");
-    setLoading(true); setMsg("");
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!form.email || !form.password) {
+      setError("Please provide email and password.");
+      return;
+    }
+
     try {
-      const data = await apiFetch("/login", { method: "POST", body: JSON.stringify(form) });
-      login(data.user, data.token);
+      setLoading(true);
+      const response = await api.post("/login", form);
+      login(response.data.user, response.data.token);
     } catch (err) {
-      setMsg(err.message);
+      setError(err.response?.data?.message || "Invalid login credentials.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={authContainerStyle}>
-      <div style={authCardStyle}>
-        <div style={{ textAlign: "center", marginBottom: "32px" }}>
-          <div style={{ fontSize: "40px", marginBottom: "8px" }}>💸</div>
-          <h1 style={{ color: "#f1f5f9", fontSize: "26px", fontWeight: 700, margin: 0 }}>Welcome Back</h1>
-          <p style={{ color: "#64748b", marginTop: "8px", fontSize: "14px" }}>Sign in to your expense manager</p>
-        </div>
-        {msg && <div style={errorBannerStyle}>{msg}</div>}
-        <Input label="Email" type="email" placeholder="you@example.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-        <Input label="Password" type="password" placeholder="Your password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
-        <Button loading={loading} onClick={handleSubmit}>Sign In</Button>
-        <p style={{ textAlign: "center", color: "#64748b", marginTop: "20px", fontSize: "14px" }}>
-          Don't have an account?{" "}
-          <span onClick={onSwitch} style={{ color: "#6366f1", cursor: "pointer", fontWeight: 600 }}>Register</span>
+    <div className="auth-wrap">
+      <form className="card" onSubmit={submit}>
+        <h1>Lost and Found</h1>
+        <p className="subtitle">Sign in to dashboard</p>
+
+        {error && <div className="alert error">{error}</div>}
+
+        <AuthInput
+          label="Email"
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          placeholder="you@college.edu"
+        />
+        <AuthInput
+          label="Password"
+          type="password"
+          value={form.password}
+          onChange={(e) => setForm({ ...form, password: e.target.value })}
+          placeholder="Your password"
+        />
+
+        <button disabled={loading} type="submit" className="btn primary">
+          {loading ? "Signing in..." : "Login"}
+        </button>
+
+        <p className="footnote">
+          New user? <button type="button" className="text-btn" onClick={onSwitch}>Create account</button>
         </p>
-      </div>
+      </form>
     </div>
   );
 }
 
-// ─── Add Expense Modal ─────────────────────────────────────────────────────────
-function AddExpenseModal({ onClose, onAdded, token }) {
-  const [form, setForm] = useState({ title: "", amount: "", category: "Food", date: new Date().toISOString().split("T")[0], notes: "" });
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
+const initialItemState = {
+  itemName: "",
+  description: "",
+  type: "Lost",
+  location: "",
+  date: new Date().toISOString().split("T")[0],
+  contactInfo: "",
+};
 
-  const handleSubmit = async () => {
-    if (!form.title || !form.amount) return setMsg("Title and amount are required");
-    setLoading(true); setMsg("");
-    try {
-      await apiFetch("/expense", { method: "POST", body: JSON.stringify({ ...form, amount: parseFloat(form.amount) }) }, token);
-      onAdded();
-      onClose();
-    } catch (err) {
-      setMsg(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+function ItemForm({ form, setForm, onSubmit, editing, loading }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, padding: "20px" }}>
-      <div style={{ background: "#1e293b", borderRadius: "16px", padding: "32px", width: "100%", maxWidth: "460px", border: "1px solid rgba(255,255,255,0.08)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-          <h2 style={{ color: "#f1f5f9", margin: 0, fontSize: "20px", fontWeight: 700 }}>Add Expense</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "20px" }}>✕</button>
-        </div>
-        {msg && <div style={errorBannerStyle}>{msg}</div>}
-        <Input label="Title" type="text" placeholder="e.g. Lunch at cafe" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
-        <Input label="Amount (₹)" type="number" placeholder="0.00" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
-        <Select label="Category" options={CATEGORIES} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} />
-        <Input label="Date" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
-        <Input label="Notes (optional)" type="text" placeholder="Any notes..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
-        <div style={{ display: "flex", gap: "12px" }}>
-          <Button variant="secondary" onClick={onClose} style={{ width: "auto", flex: 1 }}>Cancel</Button>
-          <Button loading={loading} onClick={handleSubmit} style={{ flex: 2 }}>Add Expense</Button>
+    <form className="card form-card" onSubmit={onSubmit}>
+      <h2>{editing ? "Update Item" : "Add Item"}</h2>
+
+      <div className="grid-2">
+        <AuthInput
+          label="Item Name"
+          value={form.itemName}
+          onChange={(e) => setForm({ ...form, itemName: e.target.value })}
+          placeholder="Wallet, ID Card, Watch"
+        />
+
+        <div className="field">
+          <label>Type</label>
+          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+            <option value="Lost">Lost</option>
+            <option value="Found">Found</option>
+          </select>
         </div>
       </div>
-    </div>
+
+      <AuthInput
+        label="Description"
+        value={form.description}
+        onChange={(e) => setForm({ ...form, description: e.target.value })}
+        placeholder="Color, brand, unique marks"
+      />
+
+      <div className="grid-2">
+        <AuthInput
+          label="Location"
+          value={form.location}
+          onChange={(e) => setForm({ ...form, location: e.target.value })}
+          placeholder="Library, C-Block"
+        />
+
+        <AuthInput
+          label="Date"
+          type="date"
+          value={form.date}
+          onChange={(e) => setForm({ ...form, date: e.target.value })}
+        />
+      </div>
+
+      <AuthInput
+        label="Contact Info"
+        value={form.contactInfo}
+        onChange={(e) => setForm({ ...form, contactInfo: e.target.value })}
+        placeholder="Phone or email"
+      />
+
+      <button disabled={loading} className="btn primary" type="submit">
+        {loading ? "Saving..." : editing ? "Update Item" : "Add Item"}
+      </button>
+    </form>
   );
 }
 
-// ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard() {
   const { user, token, logout } = useAuth();
-  const [expenses, setExpenses] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [filterCat, setFilterCat] = useState("All");
-  const [deleting, setDeleting] = useState(null);
+  const api = useApi(token);
+  const [items, setItems] = useState([]);
+  const [form, setForm] = useState(initialItemState);
+  const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [searchType, setSearchType] = useState("All");
+  const [editingId, setEditingId] = useState("");
 
-  const fetchExpenses = async () => {
-    setLoading(true);
+  const resetForm = () => {
+    setEditingId("");
+    setForm(initialItemState);
+  };
+
+  const getItems = async () => {
+    setListLoading(true);
+    setError("");
     try {
-      const query = filterCat !== "All" ? `?category=${filterCat}` : "";
-      const data = await apiFetch(`/expenses${query}`, {}, token);
-      setExpenses(data.expenses);
-      setTotal(data.total);
+      const response = await api.get("/items");
+      setItems(response.data.items || []);
     } catch (err) {
-      console.error(err);
+      setError(err.response?.data?.message || "Unauthorized access.");
+      if (err.response?.status === 401) {
+        logout();
+      }
+    } finally {
+      setListLoading(false);
+    }
+  };
+
+  const searchItems = async () => {
+    setListLoading(true);
+    setError("");
+    try {
+      const params = {};
+      if (search.trim()) params.name = search.trim();
+      if (searchType !== "All") params.type = searchType;
+
+      if (!params.name && !params.type) {
+        await getItems();
+        return;
+      }
+
+      const response = await api.get("/items/search", { params });
+      setItems(response.data.items || []);
+    } catch (err) {
+      setError(err.response?.data?.message || "Search failed.");
+    } finally {
+      setListLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    getItems();
+  }, []);
+
+  const submitItem = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    setError("");
+
+    if (!form.itemName || !form.description || !form.type || !form.location || !form.contactInfo) {
+      setError("Please fill all item fields.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      if (editingId) {
+        await api.put(`/items/${editingId}`, form);
+        setMessage("Item updated successfully.");
+      } else {
+        await api.post("/items", form);
+        setMessage("Item added successfully.");
+      }
+      resetForm();
+      await getItems();
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not save item.");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchExpenses(); }, [filterCat]);
+  const startEdit = (item) => {
+    setEditingId(item._id);
+    setForm({
+      itemName: item.itemName,
+      description: item.description,
+      type: item.type,
+      location: item.location,
+      date: item.date ? new Date(item.date).toISOString().split("T")[0] : initialItemState.date,
+      contactInfo: item.contactInfo,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
-  const handleDelete = async (id) => {
-    setDeleting(id);
+  const deleteItem = async (id) => {
+    setError("");
+    setMessage("");
     try {
-      await apiFetch(`/expense/${id}`, { method: "DELETE" }, token);
-      setExpenses(prev => prev.filter(e => e._id !== id));
-      setTotal(prev => parseFloat((prev - expenses.find(e => e._id === id)?.amount || 0).toFixed(2)));
+      await api.delete(`/items/${id}`);
+      setMessage("Item deleted successfully.");
+      await getItems();
     } catch (err) {
-      alert(err.message);
-    } finally {
-      setDeleting(null);
+      setError(err.response?.data?.message || "Could not delete item.");
     }
   };
 
-  // Category breakdown for bonus
-  const catBreakdown = CATEGORIES.map(cat => ({
-    cat,
-    amount: expenses.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0),
-  })).filter(c => c.amount > 0).sort((a, b) => b.amount - a.amount);
-
   return (
-    <div style={{ minHeight: "100vh", background: "#0f172a", fontFamily: "'Segoe UI', sans-serif" }}>
-      {/* Header */}
-      <header style={{ background: "rgba(30,41,59,0.8)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "16px 24px", position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ maxWidth: "1100px", margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "24px" }}>💸</span>
-            <span style={{ color: "#f1f5f9", fontWeight: 700, fontSize: "18px" }}>ExpenseTracker</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <span style={{ color: "#94a3b8", fontSize: "14px" }}>👋 {user?.name}</span>
-            <button onClick={logout} style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>
-              Logout
-            </button>
-          </div>
+    <div className="page">
+      <header className="topbar">
+        <div>
+          <h1>Lost and Found Dashboard</h1>
+          <p>Welcome {user?.name}</p>
         </div>
+        <button className="btn danger" onClick={logout}>Logout</button>
       </header>
 
-      <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "32px 24px" }}>
-        {/* Stats Row */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "32px" }}>
-          <StatCard icon="💰" label="Total Spent" value={`₹${total.toLocaleString()}`} color="#6366f1" />
-          <StatCard icon="📊" label="Transactions" value={expenses.length} color="#10b981" />
-          <StatCard icon="📅" label="This Month" value={`₹${expenses.filter(e => new Date(e.date).getMonth() === new Date().getMonth()).reduce((s, e) => s + e.amount, 0).toLocaleString()}`} color="#f97316" />
-          <StatCard icon="🏷️" label="Categories" value={catBreakdown.length} color="#8b5cf6" />
-        </div>
+      {message && <div className="alert success">{message}</div>}
+      {error && <div className="alert error">{error}</div>}
 
-        {/* Category Breakdown */}
-        {catBreakdown.length > 0 && (
-          <div style={{ background: "rgba(30,41,59,0.5)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "24px", marginBottom: "24px" }}>
-            <h3 style={{ color: "#f1f5f9", margin: "0 0 16px", fontSize: "15px", fontWeight: 600 }}>Spending by Category</h3>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-              {catBreakdown.map(({ cat, amount }) => (
-                <div key={cat} style={{ background: `${CAT_COLORS[cat]}20`, border: `1px solid ${CAT_COLORS[cat]}40`, borderRadius: "10px", padding: "8px 14px", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span>{CAT_ICONS[cat]}</span>
-                  <span style={{ color: CAT_COLORS[cat], fontSize: "13px", fontWeight: 600 }}>{cat}</span>
-                  <span style={{ color: "#94a3b8", fontSize: "13px" }}>₹{amount.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+      <ItemForm
+        form={form}
+        setForm={setForm}
+        onSubmit={submitItem}
+        editing={Boolean(editingId)}
+        loading={loading}
+      />
 
-        {/* Controls */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            {["All", ...CATEGORIES].map(cat => (
-              <button key={cat} onClick={() => setFilterCat(cat)} style={{
-                padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer",
-                background: filterCat === cat ? "#6366f1" : "rgba(255,255,255,0.05)",
-                color: filterCat === cat ? "#fff" : "#94a3b8",
-                border: filterCat === cat ? "none" : "1px solid rgba(255,255,255,0.08)",
-                transition: "all 0.2s",
-              }}>
-                {cat !== "All" && CAT_ICONS[cat]} {cat}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setShowModal(true)} style={{
-            background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff",
-            border: "none", padding: "10px 20px", borderRadius: "10px",
-            fontWeight: 600, fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px",
-          }}>
-            + Add Expense
+      <section className="card">
+        <h2>Search Items</h2>
+        <div className="search-row">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by item name"
+          />
+          <select value={searchType} onChange={(e) => setSearchType(e.target.value)}>
+            <option value="All">All Types</option>
+            <option value="Lost">Lost</option>
+            <option value="Found">Found</option>
+          </select>
+          <button className="btn secondary" onClick={searchItems}>Search</button>
+          <button
+            className="btn ghost"
+            onClick={() => {
+              setSearch("");
+              setSearchType("All");
+              getItems();
+            }}
+          >
+            Reset
           </button>
         </div>
+      </section>
 
-        {/* Expense List */}
-        {loading ? (
-          <div style={{ textAlign: "center", color: "#64748b", padding: "60px" }}>Loading expenses...</div>
-        ) : expenses.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "60px", color: "#475569" }}>
-            <div style={{ fontSize: "48px", marginBottom: "12px" }}>🧾</div>
-            <p style={{ fontSize: "16px" }}>No expenses found. Add your first one!</p>
-          </div>
+      <section className="card">
+        <h2>All Reported Items</h2>
+        {listLoading ? (
+          <p>Loading items...</p>
+        ) : items.length === 0 ? (
+          <p>No items found.</p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {expenses.map(exp => (
-              <div key={exp._id} style={{
-                background: "rgba(30,41,59,0.5)", border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: "12px", padding: "16px 20px", display: "flex",
-                justifyContent: "space-between", alignItems: "center", transition: "border-color 0.2s",
-              }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(99,102,241,0.3)"}
-                onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                  <div style={{ width: "42px", height: "42px", borderRadius: "10px", background: `${CAT_COLORS[exp.category]}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>
-                    {CAT_ICONS[exp.category]}
+          <div className="item-list">
+            {items.map((item) => {
+              const own = item.user?._id === user?.id;
+              return (
+                <article key={item._id} className="item-card">
+                  <div className="item-head">
+                    <h3>{item.itemName}</h3>
+                    <span className={`pill ${item.type === "Lost" ? "lost" : "found"}`}>{item.type}</span>
                   </div>
-                  <div>
-                    <p style={{ color: "#f1f5f9", fontWeight: 600, margin: "0 0 4px", fontSize: "15px" }}>{exp.title}</p>
-                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                      <span style={{ background: `${CAT_COLORS[exp.category]}20`, color: CAT_COLORS[exp.category], fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "20px" }}>{exp.category}</span>
-                      <span style={{ color: "#64748b", fontSize: "12px" }}>{new Date(exp.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
-                      {exp.notes && <span style={{ color: "#64748b", fontSize: "12px" }}>• {exp.notes}</span>}
-                    </div>
+                  <p>{item.description}</p>
+                  <p><strong>Location:</strong> {item.location}</p>
+                  <p><strong>Date:</strong> {new Date(item.date).toLocaleDateString()}</p>
+                  <p><strong>Contact:</strong> {item.contactInfo}</p>
+                  <p><strong>Reported by:</strong> {item.user?.name || "Unknown"}</p>
+
+                  <div className="actions">
+                    <button className="btn secondary" onClick={() => startEdit(item)} disabled={!own}>Update</button>
+                    <button className="btn danger" onClick={() => deleteItem(item._id)} disabled={!own}>Delete</button>
                   </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                  <span style={{ color: "#f1f5f9", fontWeight: 700, fontSize: "17px" }}>₹{exp.amount.toLocaleString()}</span>
-                  <button onClick={() => handleDelete(exp._id)} disabled={deleting === exp._id} style={{
-                    background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)",
-                    padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "13px",
-                    opacity: deleting === exp._id ? 0.5 : 1,
-                  }}>
-                    {deleting === exp._id ? "..." : "Delete"}
-                  </button>
-                </div>
-              </div>
-            ))}
+                  {!own && <small>Only owner can update or delete this entry.</small>}
+                </article>
+              );
+            })}
           </div>
         )}
-      </main>
-
-      {showModal && <AddExpenseModal token={token} onClose={() => setShowModal(false)} onAdded={fetchExpenses} />}
+      </section>
     </div>
   );
 }
 
-function StatCard({ icon, label, value, color }) {
-  return (
-    <div style={{ background: "rgba(30,41,59,0.5)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "14px", padding: "20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
-        <span style={{ fontSize: "20px" }}>{icon}</span>
-        <span style={{ color: "#64748b", fontSize: "13px", fontWeight: 500 }}>{label}</span>
-      </div>
-      <p style={{ color, fontSize: "24px", fontWeight: 700, margin: 0 }}>{value}</p>
-    </div>
-  );
-}
-
-// ─── Shared Styles ─────────────────────────────────────────────────────────────
-const authContainerStyle = {
-  minHeight: "100vh", background: "radial-gradient(ellipse at top, #1e1b4b 0%, #0f172a 60%)",
-  display: "flex", alignItems: "center", justifyContent: "center", padding: "20px",
-  fontFamily: "'Segoe UI', sans-serif",
-};
-
-const authCardStyle = {
-  background: "rgba(30,41,59,0.8)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: "20px", padding: "40px", width: "100%", maxWidth: "420px",
-};
-
-const errorBannerStyle = {
-  background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "10px",
-  color: "#ef4444", padding: "12px 16px", marginBottom: "16px", fontSize: "14px",
-};
-
-// ─── App Root ─────────────────────────────────────────────────────────────────
 function AppInner() {
   const { user } = useAuth();
   const [page, setPage] = useState("login");
 
   if (user) return <Dashboard />;
-  if (page === "register") return <RegisterPage onSwitch={() => setPage("login")} />;
-  return <LoginPage onSwitch={() => setPage("register")} />;
+
+  if (page === "register") {
+    return <RegisterForm onSwitch={() => setPage("login")} />;
+  }
+
+  return <LoginForm onSwitch={() => setPage("register")} />;
 }
 
 export default function App() {
